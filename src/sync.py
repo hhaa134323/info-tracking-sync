@@ -38,15 +38,20 @@ def get_existing_urls() -> set[str]:
 
 
 def create_page(article: dict[str, str]) -> None:
+    properties = {
+        "标题": {"title": [{"text": {"content": article["title"]}}]},
+        "原文链接": {"url": article["url"]},
+        "AI摘要": {"rich_text": [{"text": {"content": article["summary"][:2000]}}]},
+        "来源": {"select": {"name": "waytoagi"}},
+        "我的决定": {"status": {"name": "📋 待审"}},
+    }
+    feishu_date = article.get("feishu_date", "")
+    if feishu_date:
+        properties["飞书日期"] = {"date": {"start": feishu_date}}
+
     notion.pages.create(
         parent={"database_id": NOTION_DB_ID},
-        properties={
-            "标题": {"title": [{"text": {"content": article["title"]}}]},
-            "原文链接": {"url": article["url"]},
-            "AI摘要": {"rich_text": [{"text": {"content": article["summary"][:2000]}}]},
-            "来源": {"select": {"name": "waytoagi"}},
-            "我的决定": {"status": {"name": "📋 待审"}},
-        },
+        properties=properties,
     )
 
 
