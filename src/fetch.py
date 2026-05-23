@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from typing import Any
 
 import requests
@@ -129,6 +130,17 @@ def _clean_summary(text: str) -> str:
     return cleaned.strip()
 
 
+def _parse_date_heading(text: str) -> str | None:
+    match = re.match(r"^\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*$", text or "")
+    if not match:
+        return None
+
+    month = int(match.group(1))
+    day = int(match.group(2))
+    year = datetime.now().year
+    return f"{year:04d}-{month:02d}-{day:02d}"
+
+
 def _parse_article_node(record: dict[str, Any]) -> dict[str, str] | None:
     data = record.get("data", {})
     if data.get("type") not in {"bullet", "text"}:
@@ -174,6 +186,32 @@ def _parse_article_node(record: dict[str, Any]) -> dict[str, str] | None:
     }
 
 
+def _find_section_child_ancestor(
+    records: dict[str, Any],
+    record_id: str,
+    section_child_ids: set[str],
+    cache: dict[str, str | None],
+) -> str | None:
+    if record_id in cache:
+        return cache[record_id]
+
+    current_id = record_id
+    visited: set[str] = set()
+
+    while current_id and current_id not in visited:
+        if current_id in section_child_ids:
+            cache[record_id] = current_id
+            return current_id
+        visited.add(current_id)
+        record = records.get(current_id)
+        if not isinstance(record, dict):
+            break
+        current_id = record.get("data", {}).get("parent_id")
+
+    cache[record_id] = None
+    return None
+
+
 def parse_articles(html: str) -> list[dict[str, str]]:
     records = _extract_records(html)
 
@@ -185,6 +223,7 @@ def parse_articles(html: str) -> list[dict[str, str]]:
 
     section_index = page_children.index(section_root)
     section_child_ids: set[str] = set()
+    section_children_order: list[str] = []
     for child_id in page_children[section_index + 1 :]:
         child_record = records.get(child_id, {})
         child_type = child_record.get("data", {}).get("type") if isinstance(child_record, dict) else None
@@ -192,21 +231,47 @@ def parse_articles(html: str) -> list[dict[str, str]]:
             break
         if isinstance(child_id, str):
             section_child_ids.add(child_id)
+            section_children_order.append(child_id)
 
     articles: list[dict[str, str]] = []
     seen_urls: set[str] = set()
 
-    for record_id, record in records.items():
-        if record_id == section_root or record_id == page_root:
+    child_cache: dict[str, str | None] = {}
+    records_by_child: dict[str, list[str]] = {}
+    for record_id in records:
+        if record_id in {section_root, page_root}:
             continue
-        if not _belongs_to_any_section_child(records, record_id, section_child_ids):
+        ancestor = _find_section_child_ancestor(records, record_id, section_child_ids, child_cache)
+        if not ancestor:
             continue
-        article = _parse_article_node(record)
-        if not article:
-            continue
-        if article["url"] in seen_urls:
-            continue
-        seen_urls.add(article["url"])
-        articles.append(article)
+        records_by_child.setdefault(ancestor, []).append(record_id)
+
+    current_date = ""
+    for child_id in section_children_order:
+        child_record = records.get(child_id, {})
+        if isinstance(child_record, dict) and child_record.get("data", {}).get("type", "").startswith("heading"):
+            heading_text = (
+                child_record.get("data", {})
+                .get("text", {})
+                .get("initialAttributedTexts", {})
+                .get("text", {})
+                .get("0", "")
+            )
+            parsed_date = _parse_date_heading(heading_text)
+            if parsed_date:
+                current_date = parsed_date
+
+        for record_id in records_by_child.get(child_id, []):
+            record = records.get(record_id)
+            if not isinstance(record, dict):
+                continue
+            article = _parse_article_node(record)
+            if not article:
+                continue
+            if article["url"] in seen_urls:
+                continue
+            seen_urls.add(article["url"])
+            article["feishu_date"] = current_date
+            articles.append(article)
 
     return articles
