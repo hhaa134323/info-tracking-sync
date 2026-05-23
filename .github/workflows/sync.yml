@@ -1,13 +1,25 @@
 name: Sync Feishu to Notion
 
 on:
+  workflow_dispatch:
+    inputs:
+      NOTION_TOKEN:
+        description: Notion integration token
+        required: false
+        type: string
+      NOTION_DB_ID:
+        description: Notion database ID
+        required: false
+        type: string
   schedule:
     - cron: "0 1 * * *"
-  workflow_dispatch:
 
 jobs:
   sync:
     runs-on: ubuntu-latest
+    env:
+      NOTION_TOKEN: ${{ inputs.NOTION_TOKEN || secrets.NOTION_TOKEN }}
+      NOTION_DB_ID: ${{ inputs.NOTION_DB_ID || secrets.NOTION_DB_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -15,6 +27,3 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - run: python src/sync.py
-        env:
-          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-          NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
