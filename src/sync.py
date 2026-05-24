@@ -6,6 +6,7 @@ import traceback
 from notion_client import Client
 
 from fetch import fetch_html, parse_articles
+from fetch_latent_space import fetch_latent_space_articles
 
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 NOTION_DB_ID = os.environ["NOTION_DB_ID"]
@@ -38,16 +39,17 @@ def get_existing_urls() -> set[str]:
 
 
 def create_page(article: dict[str, str]) -> None:
+    summary = article.get("summary") or ""
     properties = {
         "标题": {"title": [{"text": {"content": article["title"]}}]},
         "原文链接": {"url": article["url"]},
-        "AI摘要": {"rich_text": [{"text": {"content": article["summary"][:2000]}}]},
-        "来源": {"select": {"name": "waytoagi"}},
+        "AI摘要": {"rich_text": [{"text": {"content": summary[:2000]}}]},
+        "来源": {"select": {"name": article["source"]}},
         "我的决定": {"status": {"name": "📋 待审"}},
     }
-    feishu_date = article.get("feishu_date", "")
-    if feishu_date:
-        properties["飞书日期"] = {"date": {"start": feishu_date}}
+    pub_date = article.get("feishu_date") or article.get("published_date")
+    if pub_date:
+        properties["发布日期"] = {"date": {"start": pub_date}}
 
     notion.pages.create(
         parent={"database_id": NOTION_DB_ID},
@@ -55,20 +57,49 @@ def create_page(article: dict[str, str]) -> None:
     )
 
 
-def main() -> None:
-    html = fetch_html()
-    articles = parse_articles(html)
-    existing_urls = get_existing_urls()
-    new_articles = [article for article in articles if article["url"] not in existing_urls]
+def fetch_feishu() -> list[dict[str, str]]:
+    try:
+        html = fetch_html()
+        articles = parse_articles(html)
+        for a in articles:
+            a["source"] = "waytoagi"
+        return articles
+    except Exception:  # noqa: BLE001
+        print("❌ 飞书 waytoagi 抓取失败")
+        traceback.print_exc()
+        return []
 
-    print(f"飞书 {len(articles)} 篇 / 新增 {len(new_articles)} 篇")
+
+def fetch_latent_space() -> list[dict[str, str]]:
+    try:
+        articles = fetch_latent_space_articles()
+        for a in articles:
+            a["source"] = "Latent Space"
+        return articles
+    except Exception:  # noqa: BLE001
+        print("❌ Latent Space 抓取失败")
+        traceback.print_exc()
+        return []
+
+
+def main() -> None:
+    feishu_articles = fetch_feishu()
+    ls_articles = fetch_latent_space()
+
+    print(f"飞书 waytoagi: {len(feishu_articles)} 篇 / Latent Space: {len(ls_articles)} 篇")
+
+    all_articles = feishu_articles + ls_articles
+    existing_urls = get_existing_urls()
+    new_articles = [a for a in all_articles if a["url"] not in existing_urls]
+
+    print(f"合计 {len(all_articles)} 篇 / 新增 {len(new_articles)} 篇")
 
     for article in new_articles:
         try:
             create_page(article)
-            print(f"✅ {article['title']}")
+            print(f"✅ [{article.get('source','?')}] {article['title']}")
         except Exception:  # noqa: BLE001
-            print(f"❌ {article['title']}")
+            print(f"❌ [{article.get('source','?')}] {article['title']}")
             traceback.print_exc()
 
 
