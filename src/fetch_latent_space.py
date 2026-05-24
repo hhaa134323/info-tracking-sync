@@ -52,6 +52,12 @@ def fetch_latent_space_articles() -> list[dict[str, str]]:
         if not title or not link:
             continue
 
+        # Skip [AINews] daily roundups — low signal, waytoagi already
+        # covers the same news in Chinese. Keep only long-form podcasts
+        # and essay posts from latent.space.
+        if title.startswith("[AINews]"):
+            continue
+
         summary = _strip_html(desc_raw)
         published_date = _parse_pubdate(date_raw) or ""
 
