@@ -18,12 +18,15 @@ MAX_ITEMS = 30
 
 ITUNES_NS = "http://www.itunes.com/dtds/podcast-1.0.dtd"
 
-# ElementTree matches namespaced tags via Clark notation "{uri}local".
-# A bare f"{ITUNES_NS}subtitle" is instead parsed as an ElementPath, and the
-# embedded "://" makes it raise SyntaxError: prefix 'http' not found in prefix
-# map — which previously aborted the entire fetch. Pre-build the qualified tags.
-ITUNES_SUBTITLE = f"{ITUNES_NS}subtitle"
-ITUNES_SUMMARY = f"{ITUNES_NS}summary"
+# ElementTree matches namespaced tags via Clark notation: a leading brace, the
+# namespace URI, a closing brace, then the local name. A bare
+# ITUNES_NS + "subtitle" (no braces) is instead parsed as an ElementPath, and
+# the embedded "://" makes findtext raise SyntaxError: prefix 'http' not found
+# in prefix map — which previously aborted the entire LateTalk fetch.
+# Build the qualified tag via string concatenation (NOT f-string brace
+# placeholders) so the literal braces survive intact.
+ITUNES_SUBTITLE = "{" + ITUNES_NS + "}subtitle"
+ITUNES_SUMMARY = "{" + ITUNES_NS + "}summary"
 
 
 def _strip_html(html: str) -> str:
