@@ -18,6 +18,13 @@ MAX_ITEMS = 30
 
 ITUNES_NS = "http://www.itunes.com/dtds/podcast-1.0.dtd"
 
+# ElementTree matches namespaced tags via Clark notation "{uri}local".
+# A bare f"{ITUNES_NS}subtitle" is instead parsed as an ElementPath, and the
+# embedded "://" makes it raise SyntaxError: prefix 'http' not found in prefix
+# map — which previously aborted the entire fetch. Pre-build the qualified tags.
+ITUNES_SUBTITLE = f"{ITUNES_NS}subtitle"
+ITUNES_SUMMARY = f"{ITUNES_NS}summary"
+
 
 def _strip_html(html: str) -> str:
     """Remove HTML tags and collapse whitespace."""
@@ -42,9 +49,9 @@ def _parse_pub_date(raw: str) -> str:
 def _pick_summary(item: ET.Element) -> str:
     """Prefer the curated one-line subtitle; fall back to show notes / summary."""
     candidates = [
-        item.findtext(f"{ITUNES_NS}subtitle"),
+        item.findtext(ITUNES_SUBTITLE),
         item.findtext("description"),
-        item.findtext(f"{ITUNES_NS}summary"),
+        item.findtext(ITUNES_SUMMARY),
     ]
     for value in candidates:
         text = _strip_html(value or "")
