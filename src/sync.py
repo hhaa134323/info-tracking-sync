@@ -8,6 +8,7 @@ from notion_client import Client
 from fetch import fetch_html, parse_articles
 from fetch_latent_space import fetch_latent_space_articles
 from fetch_latetalk import fetch_latetalk_articles
+from fetch_yc_library import fetch_yc_library_articles
 
 NOTION_TOKEN = os.environ["NOTION_TOKEN"]
 NOTION_DB_ID = os.environ["NOTION_DB_ID"]
@@ -95,18 +96,32 @@ def fetch_latetalk() -> list[dict[str, str]]:
         return []
 
 
+def fetch_yc_library() -> list[dict[str, str]]:
+    try:
+        articles = fetch_yc_library_articles()
+        for a in articles:
+            a["source"] = "YC Library"
+        return articles
+    except Exception:  # noqa: BLE001
+        print("❌ YC Library 抓取失败")
+        traceback.print_exc()
+        return []
+
+
 def main() -> None:
     feishu_articles = fetch_feishu()
     ls_articles = fetch_latent_space()
     latetalk_articles = fetch_latetalk()
+    yc_articles = fetch_yc_library()
 
     print(
         f"飞书 waytoagi: {len(feishu_articles)} 篇 / "
         f"Latent Space: {len(ls_articles)} 篇 / "
-        f"晚点聊 LateTalk: {len(latetalk_articles)} 篇"
+        f"晚点聊 LateTalk: {len(latetalk_articles)} 篇 / "
+        f"YC Library: {len(yc_articles)} 篇"
     )
 
-    all_articles = feishu_articles + ls_articles + latetalk_articles
+    all_articles = feishu_articles + ls_articles + latetalk_articles + yc_articles
     existing_urls = get_existing_urls()
     new_articles = [a for a in all_articles if a["url"] not in existing_urls]
 
