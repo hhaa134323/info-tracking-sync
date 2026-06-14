@@ -9,17 +9,12 @@ import requests
 # YC Library "The Latest" carousel.
 #
 # YC ships no public JSON/RSS feed, so we fetch the carousel page and recover
-# the item list from the server-rendered HTML. Items are content pages whose
-# URL looks like /library/<slug> (slug e.g. "NH-the-new-way-to-build-a-startup").
-#
+# the item list from the embedded data in the (very large) server response.
 # Extraction strategy, in order:
-#   1. Pair "title" + "slug" out of the embedded JSON hydration payload
-#      (works for both Next.js __NEXT_DATA__ and app-router RSC chunks, since
-#      both end up as JSON text inside the HTML).
+#   1. Pair "title" + "slug" out of the embedded JSON.
 #   2. Fall back to scraping <a href="/library/..."> anchors.
-# On zero results it prints a compact diagnostic of what the page actually
-# contained, then returns []. Fails soft so one bad source never breaks the
-# whole sync run.
+# On zero results it prints a detailed diagnostic of the page so the parser
+# can be finished without guessing. Fails soft (returns []).
 
 CAROUSEL_URL = "https://www.ycombinator.com/library/carousel/The%20Latest"
 BASE_URL = "https://www.ycombinator.com"
@@ -34,7 +29,6 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# Path segments under /library/ that are routes, not content items.
 EXCLUDE_SLUGS = {"carousel", "search"}
 
 
@@ -46,7 +40,6 @@ def _strip_html(html: str) -> str:
 
 
 def _decode(raw: str) -> str:
-    # Decode JSON string escapes (e.g. \u0026, \") without trusting the source.
     try:
         return json.loads(f'"{raw}"')
     except Exception:  # noqa: BLE001
@@ -69,16 +62,12 @@ def _add(items: list, seen: set, title: str, slug: str) -> None:
     if not title or not url or url in seen:
         return
     seen.add(url)
-    items.append(
-        {"title": title, "url": url, "summary": "", "published_date": ""}
-    )
+    items.append({"title": title, "url": url, "summary": "", "published_date": ""})
 
 
 def _from_embedded_json(html: str) -> list[dict[str, str]]:
     items: list[dict[str, str]] = []
     seen: set[str] = set()
-    # title-then-slug and slug-then-title, kept within one JSON object by
-    # forbidding braces between the two keys.
     for m in re.finditer(
         r'"title"\s*:\s*"([^"]+)"[^{}]{0,300}?"slug"\s*:\s*"([^"]+)"', html
     ):
@@ -101,27 +90,31 @@ def _from_anchors(html: str) -> list[dict[str, str]]:
         url = _slug_to_url(href)
         if title and url and url not in seen:
             seen.add(url)
-            items.append(
-                {"title": title, "url": url, "summary": "", "published_date": ""}
-            )
+            items.append({"title": title, "url": url, "summary": "", "published_date": ""})
     return items
 
 
 def _print_diagnostics(resp: requests.Response, html: str) -> None:
-    idx = html.find("/library/")
-    sample = html[max(0, idx - 150): idx + 250] if idx != -1 else ""
-    title_match = re.search(r"<title>(.*?)</title>", html, re.DOTALL)
-    print("YC DEBUG status=", resp.status_code, "final=", resp.url, "len=", len(html))
-    print(
-        "YC DEBUG __NEXT_DATA__=", "__NEXT_DATA__" in html,
-        "__next_f=", "__next_f" in html,
-    )
-    print(
-        'YC DEBUG href=/library count=', html.count('href="/library'),
-        "/library/ count=", html.count("/library/"),
-    )
-    print("YC DEBUG <title>=", title_match.group(1).strip() if title_match else None)
-    print("YC DEBUG sample=", repr(sample))
+    print("YC DEBUG status=", resp.status_code, "len=", len(html))
+    tokens = [
+        '"slug"', '"title"', '"name"', '"url"', '"cardTitle"', '"contentType"',
+        '"linkTo"', '"href"', '"path"', '"permalink"', '"thumbnail"',
+        'href="/library', 'ycombinator.com/library/', 'application/json',
+        'window.__APOLLO_STATE__', 'window.__INITIAL', 'id="__gatsby',
+        'window.pageData', 'window.___', '__remixContext', 'data-page',
+    ]
+    print("YC DEBUG counts:", {t: html.count(t) for t in tokens})
+    for m in re.finditer(r"<script[^>]*type=\"application/json\"[^>]*>", html):
+        print("YC DEBUG json-script:", m.group(0)[:200])
+    for m in re.finditer(r'<script[^>]*\bid="[^"]+"[^>]*>', html):
+        print("YC DEBUG script-id:", m.group(0)[:200])
+    for probe in ("Demis Hassabis", "Playbook For Building", "Inside Garry Tan", "AI Native"):
+        i = html.find(probe)
+        if i != -1:
+            print(f"YC DEBUG ctx[{probe}] at {i} =", repr(html[max(0, i - 400): i + 250]))
+            break
+    else:
+        print("YC DEBUG: no known title text found in raw HTML (content likely JS-rendered)")
 
 
 def fetch_yc_library_articles() -> list[dict[str, str]]:
